@@ -1,4 +1,4 @@
-// 輸入名字場景
+// 輸入名字場景 - 支援手機虛擬鍵盤
 
 import Phaser from 'phaser';
 import { BUNNY_COLORS, FONT_CONFIG } from '../config';
@@ -11,6 +11,7 @@ export class NameInputScene extends Phaser.Scene {
   private currentName: string = '';
   private cursorVisible: boolean = true;
   private cursorTimer!: Phaser.Time.TimerEvent;
+  private htmlInput: HTMLInputElement | null = null;
 
   constructor() {
     super({ key: 'NameInputScene' });
@@ -60,6 +61,9 @@ export class NameInputScene extends Phaser.Scene {
       this.currentName = savedPlayer.name;
     }
 
+    // 創建隱藏的 HTML input（支援手機虛擬鍵盤）
+    this.createHtmlInput();
+
     // 游標閃爍
     this.cursorTimer = this.time.addEvent({
       delay: 500,
@@ -76,7 +80,7 @@ export class NameInputScene extends Phaser.Scene {
     const hint = this.add.text(
       width / 2,
       height / 2 + 60,
-      '請用鍵盤輸入（支援中英文）',
+      '點擊上方輸入框輸入名字',
       {
         ...FONT_CONFIG.hint,
         fontSize: '18px',
@@ -85,34 +89,39 @@ export class NameInputScene extends Phaser.Scene {
     );
     hint.setOrigin(0.5);
 
+    // 輸入框點擊區域 - 點擊後聚焦到 HTML input
+    const inputHitArea = this.add.rectangle(width / 2, height / 2, 300, 60, 0x000000, 0);
+    inputHitArea.setInteractive({ useHandCursor: true });
+    inputHitArea.on('pointerdown', () => {
+      this.focusInput();
+    });
+
     // 確認按鈕
     this.createButton(
       width / 2,
       height * 0.75,
       '✅ 確認開始',
       () => {
-        if (this.currentName.trim().length > 0) {
-          savePlayerInfo({ name: this.currentName.trim() });
-          bgMusic.playClickSound();
-          this.scene.start('MainMenu');
-        }
+        this.submitName();
       }
     );
 
-    // 鍵盤輸入
+    // 桌面鍵盤輸入（保留相容性）
     this.input.keyboard?.on('keydown', (event: KeyboardEvent) => {
+      // 如果 HTML input 已聚焦，讓它處理
+      if (document.activeElement === this.htmlInput) {
+        return;
+      }
+
       if (event.key === 'Backspace') {
         this.currentName = this.currentName.slice(0, -1);
       } else if (event.key === 'Enter') {
-        if (this.currentName.trim().length > 0) {
-          savePlayerInfo({ name: this.currentName.trim() });
-          bgMusic.playClickSound();
-          this.scene.start('MainMenu');
-        }
+        this.submitName();
       } else if (event.key.length === 1 && this.currentName.length < 10) {
         this.currentName += event.key;
       }
       this.updateNameDisplay();
+      this.syncToHtmlInput();
     });
 
     // 點擊畫面任意處來啟動音樂
@@ -121,6 +130,90 @@ export class NameInputScene extends Phaser.Scene {
         bgMusic.start();
       }
     });
+  }
+
+  private createHtmlInput(): void {
+    // 移除舊的 input（如果存在）
+    this.removeHtmlInput();
+
+    // 創建隱藏的 HTML input
+    this.htmlInput = document.createElement('input');
+    this.htmlInput.type = 'text';
+    this.htmlInput.maxLength = 10;
+    this.htmlInput.value = this.currentName;
+    this.htmlInput.autocomplete = 'off';
+    this.htmlInput.autocapitalize = 'off';
+
+    // 樣式 - 放在遊戲畫面上方但透明
+    this.htmlInput.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 280px;
+      height: 50px;
+      font-size: 24px;
+      text-align: center;
+      border: none;
+      background: transparent;
+      color: transparent;
+      caret-color: transparent;
+      outline: none;
+      z-index: 1000;
+      -webkit-appearance: none;
+    `;
+
+    document.body.appendChild(this.htmlInput);
+
+    // 監聽輸入事件
+    this.htmlInput.addEventListener('input', () => {
+      if (this.htmlInput) {
+        this.currentName = this.htmlInput.value.slice(0, 10);
+        this.updateNameDisplay();
+      }
+    });
+
+    // 監聯 Enter 鍵
+    this.htmlInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.submitName();
+      }
+    });
+  }
+
+  private focusInput(): void {
+    if (this.htmlInput) {
+      this.htmlInput.focus();
+      // iOS Safari 需要額外處理
+      this.htmlInput.click();
+    }
+  }
+
+  private syncToHtmlInput(): void {
+    if (this.htmlInput) {
+      this.htmlInput.value = this.currentName;
+    }
+  }
+
+  private removeHtmlInput(): void {
+    if (this.htmlInput && this.htmlInput.parentNode) {
+      this.htmlInput.parentNode.removeChild(this.htmlInput);
+      this.htmlInput = null;
+    }
+  }
+
+  private submitName(): void {
+    if (this.currentName.trim().length > 0) {
+      savePlayerInfo({ name: this.currentName.trim() });
+      bgMusic.playClickSound();
+      this.removeHtmlInput();
+      this.scene.start('MainMenu');
+    }
+  }
+
+  shutdown(): void {
+    this.removeHtmlInput();
   }
 
   private createBackground(width: number, height: number): void {
